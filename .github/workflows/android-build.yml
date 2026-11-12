@@ -1,4 +1,3 @@
-
 name: Build Android APK
 
 on:
@@ -12,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Bangladesh Car Simulator APK
+    name: Build Bangladesh Realistic Car Simulator
     runs-on: ubuntu-latest
 
     container:
@@ -20,7 +19,10 @@ jobs:
 
     env:
       HOME: /root
+      ANDROID_HOME: /usr/lib/android-sdk
+      ANDROID_SDK_ROOT: /usr/lib/android-sdk
       DOCKER_CONFIG: /tmp/docker-config
+
       GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /root/debug.keystore
       GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
       GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
@@ -34,32 +36,61 @@ jobs:
       - name: Install required packages
         run: |
           mkdir -p /tmp/docker-config
+
           apt-get update
           apt-get install -y fontconfig libfontconfig1
 
-      - name: Check Godot and Android tools
+      - name: Verify Godot and Android SDK
         run: |
           set -eux
 
           godot --version
           java -version
 
+          test -f project.godot
+          test -f main.tscn
+          test -f main.gd
+
           test -d /usr/lib/android-sdk
           test -d /usr/lib/android-sdk/platforms/android-33
           test -d /usr/lib/android-sdk/build-tools/33.0.2
-          test -f /usr/lib/android-sdk/platform-tools/adb
 
-          test -f /root/debug.keystore
+          test -f /usr/lib/android-sdk/platform-tools/adb
+          test -x /usr/lib/android-sdk/build-tools/33.0.2/apksigner
 
           test -f /root/.local/share/godot/export_templates/4.5.stable/android_debug.apk
           test -f /root/.local/share/godot/export_templates/4.5.stable/android_release.apk
 
-          echo "Android tools verification successful."
+          echo "Godot and Android SDK checks passed."
 
-      - name: Configure Android export
+      - name: Configure Java and Debug Keystore
         run: |
+          set -eux
+
+          JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+          test -x "$JAVA_HOME/bin/java"
+          test -x "$JAVA_HOME/bin/keytool"
+
+          if ! keytool -list \
+            -keystore /root/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey >/dev/null 2>&1; then
+
+            rm -f /root/debug.keystore
+
+            keytool -genkeypair \
+              -keystore /root/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
           mkdir -p /root/.config/godot
-          mkdir -p build
 
           cat > /root/.config/godot/editor_settings-4.5.tres <<'EOF'
           [gd_resource type="EditorSettings" format=3]
@@ -71,6 +102,29 @@ jobs:
           export/android/debug_keystore_user = "androiddebugkey"
           export/android/debug_keystore_pass = "android"
           EOF
+
+      - name: Fix Android texture compression setting
+        run: |
+          set -eux
+
+          if grep -q '^textures/vram_compression/import_etc2_astc=' project.godot; then
+            sed -i \
+              's/^textures\/vram_compression\/import_etc2_astc=.*/textures\/vram_compression\/import_etc2_astc=true/' \
+              project.godot
+          else
+            sed -i \
+              '/^\[rendering\]/a textures/vram_compression/import_etc2_astc=true' \
+              project.godot
+          fi
+
+          echo "Android texture compression setting:"
+          grep 'import_etc2_astc' project.godot
+
+          rm -rf .godot/imported
+
+      - name: Create Android export preset
+        run: |
+          mkdir -p build
 
           cat > export_presets.cfg <<'EOF'
           [preset.0]
@@ -103,16 +157,8 @@ jobs:
           gradle_build/android_source_template=""
           gradle_build/compress_native_libraries=false
           gradle_build/export_format=0
-          gradle_build/min_sdk="23"
+          gradle_build/min_sdk="24"
           gradle_build/target_sdk="33"
-
-          keystore/debug="/root/debug.keystore"
-          keystore/debug_user="androiddebugkey"
-          keystore/debug_password="android"
-
-          keystore/release=""
-          keystore/release_user=""
-          keystore/release_password=""
 
           architectures/armeabi-v7a=false
           architectures/arm64-v8a=true
@@ -127,22 +173,37 @@ jobs:
           package/signed=true
           EOF
 
-          echo "Export configuration created."
+          echo "Android preset created."
 
       - name: Import Godot project
         run: |
-          godot --headless --editor --path . --quit
+          set -eux
 
-      - name: Validate Android export preset
+          godot --headless --editor --path . --quit --verbose
+
+      - name: Verify project and export configuration
         run: |
-          echo "Checking export preset..."
-          cat export_presets.cfg
+          set -eux
 
-          echo "Checking project configuration..."
           test -f project.godot
           test -f main.tscn
+          test -f main.gd
+          test -f export_presets.cfg
 
-      - name: Build Android Debug APK
+          grep -q \
+            'textures/vram_compression/import_etc2_astc=true' \
+            project.godot
+
+          grep -q 'name="Android"' export_presets.cfg
+
+          keytool -list \
+            -keystore /root/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey
+
+          echo "Project configuration checks passed."
+
+      - name: Export Android Debug APK
         run: |
           set -eux
 
@@ -152,7 +213,7 @@ jobs:
 
           test -s build/BangladeshCarSimulator.apk
 
-          echo "APK BUILD SUCCESSFUL"
+          echo "ANDROID APK BUILD SUCCESSFUL"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
