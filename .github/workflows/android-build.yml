@@ -21,7 +21,6 @@ jobs:
       HOME: /root
       XDG_CONFIG_HOME: /root/.config
       XDG_DATA_HOME: /root/.local/share
-      DOCKER_CONFIG: /tmp/docker-config
       ANDROID_HOME: /usr/lib/android-sdk
       ANDROID_SDK_ROOT: /usr/lib/android-sdk
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
@@ -30,45 +29,28 @@ jobs:
       GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
 
     steps:
-      - name: Download project
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           lfs: true
 
-      - name: Install font support
+      - name: Install Android SDK platform
         run: |
-          apt-get update
-          apt-get install -y fontconfig libfontconfig1
-          mkdir -p /tmp/docker-config
-          mkdir -p build
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Check Android tools
+      - name: Verify tools
         run: |
           godot --version
           java -version
-          test -f /usr/lib/android-sdk/platform-tools/adb
-          test -f /usr/lib/jvm/java-17-openjdk-amd64/bin/java
           test -f /root/debug.keystore
           test -f /root/.local/share/godot/export_templates/4.5.stable/android_debug.apk
+          test -f /usr/lib/android-sdk/build-tools/35.0.0/apksigner
 
-      - name: Configure Godot
+      - name: Create export preset
         run: |
-          mkdir -p /root/.config/godot
+          mkdir -p build
 
-          cat > /root/.config/godot/editor_settings-4.5.tres <<'EOF'
-          [gd_resource type="EditorSettings" format=3]
-
-          [resource]
-          export/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"
-          export/android/android_sdk_path = "/usr/lib/android-sdk"
-          export/android/debug_keystore = "/root/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
-          export/android/force_system_user = false
-          EOF
-
-      - name: Create Android preset
-        run: |
           cat > export_presets.cfg <<'EOF'
           [preset.0]
           name="Android"
@@ -93,10 +75,12 @@ jobs:
           architectures/arm64-v8a=true
           architectures/x86=false
           architectures/x86_64=false
+          keystore/debug="/root/debug.keystore"
+          keystore/debug_user="androiddebugkey"
+          keystore/debug_password="android"
+          package/signed=true
           version/code=1
           version/name="1.0.0"
-          version/min_sdk=23
-          version/target_sdk=33
           package/unique_name="com.example.bangladeshcarsimulator"
           package/name="Bangladesh Realistic Car Simulator"
           EOF
@@ -105,9 +89,9 @@ jobs:
         run: |
           godot --headless --editor --path . --quit
 
-      - name: Export debug APK
+      - name: Export APK
         run: |
-          godot --headless --verbose --path . \
+          godot --headless --path . \
             --export-debug "Android" \
             build/BangladeshCarSimulator.apk
 
