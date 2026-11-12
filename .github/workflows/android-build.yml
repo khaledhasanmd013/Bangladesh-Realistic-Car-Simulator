@@ -18,11 +18,39 @@ jobs:
     container:
       image: barichello/godot-ci:4.5
 
+    env:
+      HOME: /root
+
     steps:
       - name: Download project
         uses: actions/checkout@v4
         with:
           lfs: true
+
+      - name: Install font support
+        run: |
+          apt-get update
+          apt-get install -y libfontconfig1
+
+      - name: Verify Android build environment
+        run: |
+          echo "Godot version:"
+          godot --version
+
+          echo "Java version:"
+          java -version
+
+          echo "Checking Android SDK..."
+          test -d /usr/lib/android-sdk/platform-tools
+
+          echo "Checking Java SDK..."
+          test -d /usr/lib/jvm/java-17-openjdk-amd64
+
+          echo "Checking export templates..."
+          test -f /root/.local/share/godot/export_templates/4.5.stable/android_debug.apk
+          test -f /root/.local/share/godot/export_templates/4.5.stable/android_release.apk
+
+          adb start-server || true
 
       - name: Create Android export preset
         run: |
@@ -65,8 +93,8 @@ jobs:
       - name: Build APK
         run: |
           godot --headless --path . \
-          --export-debug "Android" \
-          build/BangladeshCarSimulator.apk
+            --export-debug "Android" \
+            build/BangladeshCarSimulator.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
