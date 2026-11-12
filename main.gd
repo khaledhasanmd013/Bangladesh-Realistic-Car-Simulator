@@ -1,10 +1,4 @@
 
-var driving_car: CarController
-var driving_controls: MobileControls
-var driving_layer: CanvasLayer
-var main_menu_layer: CanvasLayer
-var test_ground: StaticBody3D
-
 extends Node3D
 
 var garage: VehicleGarage
