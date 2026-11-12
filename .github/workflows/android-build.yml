@@ -19,10 +19,15 @@ jobs:
 
     env:
       HOME: /root
+      XDG_CONFIG_HOME: /root/.config
+      XDG_DATA_HOME: /root/.local/share
       DOCKER_CONFIG: /tmp/docker-config
       ANDROID_HOME: /usr/lib/android-sdk
       ANDROID_SDK_ROOT: /usr/lib/android-sdk
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+      GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /root/debug.keystore
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
 
     steps:
       - name: Download project
@@ -30,36 +35,26 @@ jobs:
         with:
           lfs: true
 
-      - name: Prepare build environment
+      - name: Install font support
         run: |
+          apt-get update
+          apt-get install -y fontconfig libfontconfig1
           mkdir -p /tmp/docker-config
-          mkdir -p /root/.config/godot
           mkdir -p build
 
-          java -version
+      - name: Check Android tools
+        run: |
           godot --version
-
+          java -version
+          test -f /usr/lib/android-sdk/platform-tools/adb
           test -f /usr/lib/jvm/java-17-openjdk-amd64/bin/java
-          test -d /usr/lib/android-sdk/platform-tools
-          test -d /usr/lib/android-sdk/build-tools/33.0.2
+          test -f /root/debug.keystore
+          test -f /root/.local/share/godot/export_templates/4.5.stable/android_debug.apk
 
-      - name: Create debug keystore
+      - name: Configure Godot
         run: |
-          rm -f /root/debug.keystore
+          mkdir -p /root/.config/godot
 
-          keytool -genkeypair \
-            -v \
-            -keystore /root/debug.keystore \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
-
-      - name: Configure Godot Android settings
-        run: |
           cat > /root/.config/godot/editor_settings-4.5.tres <<'EOF'
           [gd_resource type="EditorSettings" format=3]
 
@@ -70,10 +65,9 @@ jobs:
           export/android/debug_keystore_user = "androiddebugkey"
           export/android/debug_keystore_pass = "android"
           export/android/force_system_user = false
-          export/android/timestamping_authority_url = ""
           EOF
 
-      - name: Create Android export preset
+      - name: Create Android preset
         run: |
           cat > export_presets.cfg <<'EOF'
           [preset.0]
@@ -101,15 +95,17 @@ jobs:
           architectures/x86_64=false
           version/code=1
           version/name="1.0.0"
+          version/min_sdk=23
+          version/target_sdk=33
           package/unique_name="com.example.bangladeshcarsimulator"
           package/name="Bangladesh Realistic Car Simulator"
           EOF
 
-      - name: Import Godot project
+      - name: Import project
         run: |
           godot --headless --editor --path . --quit
 
-      - name: Build APK
+      - name: Export debug APK
         run: |
           godot --headless --verbose --path . \
             --export-debug "Android" \
